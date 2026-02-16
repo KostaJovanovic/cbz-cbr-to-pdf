@@ -1,19 +1,30 @@
 import tkinter as tk
-from tkinter import filedialog
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 import tkinter.font
 import os
 import platform
 import threading
-import img2pdf
+import sys
+import shlex
 import math
 import random
 import shutil
 import subprocess
-import sys
-import shlex
 
-# Cross-platform drag-and-drop
+# Optional dependencies - will show nice error if missing
+try:
+    import img2pdf
+    HAS_IMG2PDF = True
+except ImportError:
+    HAS_IMG2PDF = False
+
+try:
+    import rarfile
+    HAS_RARFILE = True
+except ImportError:
+    HAS_RARFILE = False
+
+# Drag and drop support
 try:
     import tkinterdnd2 as tkdnd
     USE_TKINTERDND2 = True
@@ -21,15 +32,55 @@ except ImportError:
     try:
         import windnd
         USE_TKINTERDND2 = False
+        windnd = None
     except ImportError:
         USE_TKINTERDND2 = False
         windnd = None
 
 
+# ============================================================================
+# CONFIGURATION & THEME
+# ============================================================================
+
+MIN_WIDTH = 700
+MIN_HEIGHT = 500
+DEFAULT_WIDTH = 900
+DEFAULT_HEIGHT = 650
+
+# Zed-inspired dark theme
+THEME = {
+    "bg": "#0d1117",           # GitHub dark dim
+    "bg_secondary": "#161b22", # Slightly lighter
+    "bg_tertiary": "#21262d",  # Borders
+    "bg_hover": "#30363d",     # Hover state
+    "text_primary": "#f0f6fc", # Primary text
+    "text_secondary": "#8b949e",  # Dimmed text
+    "text_muted": "#6e7681",   # Very dim
+    "accent": "#58a6ff",       # Blue accent
+    "accent_dim": "#1f6feb",   # Darker blue
+    "success": "#3fb950",      # Green
+    "error": "#f85149",        # Red
+    "warning": "#d29922",      # Yellow
+    "border": "#30363d",       # Border color
+    "scrollbar": "#21262d",    # Scrollbar track
+    "scrollbar_thumb": "#58a6ff",  # Scrollbar thumb
+}
+
+# Layout
+PAD_SMALL = 4
+PAD_MEDIUM = 8
+PAD_LARGE = 16
+PAD_XL = 24
+SIDEBAR_WIDTH = 280
+
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
+
 def get_unrar_path():
-    """Get path to bundled unrar binary for current platform"""
+    """Get path to bundled unrar binary"""
     system = platform.system().lower()
-    
     if getattr(sys, 'frozen', False):
         base_path = sys._MEIPASS
     else:
@@ -45,7 +96,8 @@ def get_unrar_path():
 
 def setup_rarfile():
     """Configure rarfile to use bundled unrar"""
-    import rarfile
+    if not HAS_RARFILE:
+        return False
     unrar_path = get_unrar_path()
     if os.path.exists(unrar_path):
         rarfile.UNRAR_TOOL = unrar_path
@@ -54,7 +106,7 @@ def setup_rarfile():
 
 
 def apply_dark_title_bar(root):
-    """Apply dark title bar on Windows 10+"""
+    """Apply dark title bar on Windows"""
     try:
         if platform.system() == "Windows":
             from ctypes import windll, c_int, byref
@@ -64,126 +116,24 @@ def apply_dark_title_bar(root):
         pass
 
 
-def _hex_to_rgb(h):
-    h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+def open_file_or_folder(path):
+    """Open file or folder with system default"""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)
+        elif platform.system() == "Darwin":
+            subprocess.run(['open', path])
+        else:
+            subprocess.run(['xdg-open', path])
+    except Exception:
+        pass
 
 
-def _rgb_to_hex(r, g, b):
-    return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
-
-
-def _blend(hex1, hex2, t=0.5):
-    r1, g1, b1 = _hex_to_rgb(hex1)
-    r2, g2, b2 = _hex_to_rgb(hex2)
-    return _rgb_to_hex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t)
-
-
-def _darken(hex_color, amount=0.3):
-    r, g, b = _hex_to_rgb(hex_color)
-    return _rgb_to_hex(r * (1 - amount), g * (1 - amount), b * (1 - amount))
-
-
-def _lighten(hex_color, amount=0.3):
-    r, g, b = _hex_to_rgb(hex_color)
-    return _rgb_to_hex(r + (255 - r) * amount, g + (255 - g) * amount, b + (255 - b) * amount)
-
-
-def _luminance(hex_color):
-    r, g, b = _hex_to_rgb(hex_color)
-    return 0.299 * r + 0.587 * g + 0.114 * b
-
-
-def _build_theme(c1, c2, c3, c4):
-    """Build a full theme from 4 palette colors"""
-    colors = sorted([c1, c2, c3, c4], key=_luminance)
-    darkest, dark, mid, bright = colors
-
-    lum = _luminance(darkest)
-    if lum > 60:
-        bg = _darken(darkest, 0.85)
-    else:
-        bg = _darken(darkest, 0.35)
-
-    light_text = _luminance(bg) < 100
-
-    accent = mid
-    while light_text and _luminance(accent) < 120:
-        accent = _lighten(accent, 0.2)
-    green = bright
-    while light_text and _luminance(green) < 140:
-        green = _lighten(green, 0.2)
-
-    return {
-        "BG": bg,
-        "BG_MID": _lighten(bg, 0.08),
-        "BG_LIGHT": _lighten(bg, 0.14),
-        "CARD": _lighten(bg, 0.12) if light_text else _darken(bg, 0.15),
-        "CARD_HOVER": _lighten(bg, 0.18),
-        "CARD_BORDER": _lighten(bg, 0.22),
-        "ACCENT": accent,
-        "ACCENT_HOVER": _lighten(accent, 0.2),
-        "ACCENT_DIM": _darken(accent, 0.25),
-        "BLUE": dark if not light_text else _lighten(dark, 0.15),
-        "BLUE_LIGHT": _lighten(dark, 0.25),
-        "PURPLE": _blend(darkest, dark, 0.5),
-        "PURPLE_LIGHT": _lighten(_blend(darkest, dark, 0.5), 0.25),
-        "GREEN": green,
-        "GREEN_DIM": _darken(green, 0.2),
-        "TEXT": "#f0f0f0" if light_text else "#1a1a1a",
-        "TEXT_DIM": _lighten(bg, 0.35) if light_text else _darken(bg, 0.4),
-        "TEXT_MID": _lighten(bg, 0.50) if light_text else _darken(bg, 0.55),
-        "SUCCESS": green,
-        "ERROR": "#ff8a80" if light_text else "#c62828",
-        "LOG_BG": _darken(bg, 0.15),
-    }
-
-
-PALETTES = [
-    ("a2faa3", "92c9b1", "4f759b", "5d5179"),
-    ("8ab0ab", "3e505b", "26413c", "1a1d1a"),
-    ("d8dbe2", "a9bcd0", "58a4b0", "373f51"),
-    ("d7d9b1", "84acce", "827191", "7d1d3f"),
-    ("14080e", "49475b", "799496", "acc196"),
-    ("ffffff", "ffe8d1", "568ea3", "68c3d4"),
-]
-
-_chosen = random.choice(PALETTES)
-_theme = _build_theme(*[f"#{c}" for c in _chosen])
-
-BG = _theme["BG"]
-BG_MID = _theme["BG_MID"]
-BG_LIGHT = _theme["BG_LIGHT"]
-CARD = _theme["CARD"]
-CARD_HOVER = _theme["CARD_HOVER"]
-CARD_BORDER = _theme["CARD_BORDER"]
-ACCENT = _theme["ACCENT"]
-ACCENT_HOVER = _theme["ACCENT_HOVER"]
-ACCENT_DIM = _theme["ACCENT_DIM"]
-BLUE = _theme["BLUE"]
-BLUE_LIGHT = _theme["BLUE_LIGHT"]
-PURPLE = _theme["PURPLE"]
-PURPLE_LIGHT = _theme["PURPLE_LIGHT"]
-GREEN = _theme["GREEN"]
-GREEN_DIM = _theme["GREEN_DIM"]
-TEXT = _theme["TEXT"]
-TEXT_DIM = _theme["TEXT_DIM"]
-TEXT_MID = _theme["TEXT_MID"]
-SUCCESS = _theme["SUCCESS"]
-ERROR = _theme["ERROR"]
-LOG_BG = _theme["LOG_BG"]
-
-# Layout constants
-PAD_SMALL = 6
-PAD_MEDIUM = 12
-PAD_LARGE = 20
-PAD_XL = 28
-
-STATUS_PENDING = "pending"
-STATUS_CONVERTING = "converting"
-STATUS_DONE = "done"
-STATUS_FAILED = "failed"
-
+# ============================================================================
+# CONVERSION LOGIC
+# ============================================================================
 
 def extract_zip(zip_path, extract_to):
     """Extract ZIP archive"""
@@ -192,23 +142,25 @@ def extract_zip(zip_path, extract_to):
         with zipfile.ZipFile(zip_path, 'r') as zf:
             zf.extractall(extract_to)
         return True
-    except Exception:
+    except Exception as e:
         return False
 
 
 def extract_rar(rar_path, extract_to):
     """Extract RAR archive"""
-    import rarfile
+    if not HAS_RARFILE:
+        return False
     try:
         setup_rarfile()
         with rarfile.RarFile(rar_path) as rf:
             rf.extractall(extract_to)
         return True
-    except Exception:
+    except Exception as e:
         return False
 
 
 def find_comic_files(paths):
+    """Find all comic files in paths"""
     files = []
     for p in paths:
         if os.path.isdir(p):
@@ -221,113 +173,102 @@ def find_comic_files(paths):
     return sorted(files)
 
 
-def convert_one(comic_path, pdf_folder, log_func):
+def convert_comic(comic_path, pdf_folder, callback=None):
+    """Convert a single comic to PDF"""
     basename = os.path.splitext(os.path.basename(comic_path))[0]
     out_dir = os.path.join(os.path.dirname(comic_path), basename + "_temp")
     pdf_out = os.path.join(pdf_folder, basename + ".pdf")
-
-    if os.path.exists(pdf_out):
-        log_func(f"  Skipped (exists): {basename}.pdf", "dim")
-        return True, pdf_out
-
-    log_func(f"  Extracting: {os.path.basename(comic_path)}", "normal")
     
+    if os.path.exists(pdf_out):
+        return True, pdf_out, "Already exists"
+    
+    if callback:
+        callback(f"Extracting: {basename}")
+    
+    # Extract
     if comic_path.lower().endswith('.cbz'):
         success = extract_zip(comic_path, out_dir)
     elif comic_path.lower().endswith('.cbr'):
         success = extract_rar(comic_path, out_dir)
     else:
-        log_func(f"  ERROR: Unsupported format", "error")
-        return False, None
+        return False, None, "Unsupported format"
     
     if not success:
-        log_func(f"  ERROR: Failed to extract archive", "error")
-        return False, None
-
+        return False, None, "Extraction failed"
+    
+    # Find images
     exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".gif", ".webp")
     images = sorted([
         os.path.join(r, f)
         for r, _, fs in os.walk(out_dir)
         for f in fs if f.lower().endswith(exts)
     ])
-
+    
     if not images:
-        log_func(f"  ERROR: No images found in archive", "error")
-        _cleanup(out_dir)
-        return False, None
-
-    log_func(f"  Converting {len(images)} pages...", "normal")
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return False, None, "No images found"
+    
+    if callback:
+        callback(f"Converting {len(images)} pages")
+    
+    # Create PDF
+    if not HAS_IMG2PDF:
+        return False, None, "img2pdf not installed"
+    
     try:
         with open(pdf_out, "wb") as f:
             f.write(img2pdf.convert(images))
     except Exception as e:
-        log_func(f"  ERROR creating PDF: {e}", "error")
-        if os.path.exists(pdf_out):
-            os.remove(pdf_out)
-        _cleanup(out_dir)
-        return False, None
-
-    _cleanup(out_dir)
-    log_func(f"  Done: {basename}.pdf", "success")
-    return True, pdf_out
-
-
-def _cleanup(out_dir):
-    try:
         shutil.rmtree(out_dir, ignore_errors=True)
-    except Exception:
-        pass
-
-
-def open_file_or_folder(path):
-    """Open file or folder with system default application"""
-    if not path or not os.path.exists(path):
-        return
+        return False, None, str(e)
     
-    system = platform.system()
-    try:
-        if system == "Windows":
-            os.startfile(path)
-        elif system == "Darwin":
-            subprocess.run(['open', path])
-        else:
-            subprocess.run(['xdg-open', path])
-    except Exception:
-        pass
+    # Cleanup
+    shutil.rmtree(out_dir, ignore_errors=True)
+    return True, pdf_out, "Success"
 
 
-class Button:
-    """Modern button component with proper padding"""
-    def __init__(self, parent, text, command, primary=True, enabled=True):
+# ============================================================================
+# UI COMPONENTS
+# ============================================================================
+
+class ModernButton:
+    """Zed-style button"""
+    def __init__(self, parent, text, command, primary=False, small=False):
         self.parent = parent
         self.text = text
         self.command = command
         self.primary = primary
-        self.enabled = enabled
+        self.small = small
+        self.enabled = True
         self.hover = False
         
-        # Calculate size based on text
-        font_spec = ("Segoe UI Semibold", 10)
-        self.parent.update_idletasks()
-        text_width = tkinter.font.Font(font=font_spec).measure(text)
-        self.width = max(120, text_width + 32)
-        self.height = 36
+        self.height = 28 if small else 34
         
+        # Calculate width
+        font = ("Segoe UI", 9 if small else 10)
+        self.parent.update_idletasks()
+        text_width = tkinter.font.Font(font=font).measure(text)
+        self.width = max(80, text_width + 24)
+        
+        self.frame = tk.Frame(parent, bg=THEME["bg"])
         self.canvas = tk.Canvas(
-            parent, width=self.width, height=self.height,
-            bg=BG, highlightthickness=0, cursor="hand2"
+            self.frame, width=self.width, height=self.height,
+            bg=THEME["bg"], highlightthickness=0, cursor="hand2"
         )
+        self.canvas.pack()
+        
         self.canvas.bind("<Configure>", self._draw)
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<Enter>", self._on_enter)
         self.canvas.bind("<Leave>", self._on_leave)
+        
         self._draw()
     
     def pack(self, **kwargs):
-        self.canvas.pack(**kwargs)
+        self.frame.pack(**kwargs)
     
     def grid(self, **kwargs):
-        self.canvas.grid(**kwargs)
+        self.frame.grid(**kwargs)
     
     def set_enabled(self, enabled):
         self.enabled = enabled
@@ -352,66 +293,79 @@ class Button:
         w, h = self.width, self.height
         
         if not self.enabled:
-            fill = CARD
-            text_color = TEXT_DIM
+            bg = THEME["bg_tertiary"]
+            fg = THEME["text_muted"]
         elif self.primary:
-            fill = ACCENT_HOVER if self.hover else ACCENT
-            text_color = BG
+            bg = THEME["accent"] if self.hover else THEME["accent_dim"]
+            fg = "#ffffff"
         else:
-            fill = CARD_HOVER if self.hover else CARD
-            text_color = TEXT if self.hover else TEXT_MID
+            bg = THEME["bg_hover"] if self.hover else THEME["bg_secondary"]
+            fg = THEME["text_primary"]
         
         # Draw rounded rect
-        points = []
-        r = 8
-        for (cx, cy, sa) in [
-            (w - r, r, -90), (w - r, h - r, 0),
-            (r, h - r, 90), (r, r, 180)
-        ]:
-            for i in range(13):
-                a = math.radians(sa + i * 90 / 12)
-                points.extend([cx + r * math.cos(a), cy + r * math.sin(a)])
-        c.create_polygon(points, smooth=True, fill=fill, outline="")
+        r = 4
+        c.create_rectangle(0, 0, w, h, fill=bg, outline="", width=0)
         
-        c.create_text(w // 2, h // 2, text=self.text,
-                      font=("Segoe UI Semibold", 10), fill=text_color)
+        # Text
+        font = ("Segoe UI", 9, "bold") if self.primary else ("Segoe UI", 9)
+        c.create_text(w/2, h/2, text=self.text, fill=fg, font=font)
 
 
-class FileList:
-    """Scrollable file list with status and click-to-open"""
-    def __init__(self, parent, on_file_click):
+class FileSidebar:
+    """Right sidebar for file list"""
+    def __init__(self, parent, on_click):
         self.parent = parent
-        self.on_file_click = on_file_click
-        self.files = []  # [{path, status, pdf_path, display_name}, ...]
-        self.row_height = 40
-        self.visible_rows = 6
-        self.scroll_offset = 0
-        self.hover_row = -1
+        self.on_click = on_click
+        self.files = []
+        self.row_height = 36
+        self.hover_idx = -1
         
-        height = self.row_height * self.visible_rows + 4
+        self.frame = tk.Frame(parent, bg=THEME["bg_secondary"], width=SIDEBAR_WIDTH)
+        self.frame.pack_propagate(False)
+        self.frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Header
+        header = tk.Frame(self.frame, bg=THEME["bg_secondary"], height=40)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        
+        tk.Label(
+            header, text="Files",
+            font=("Segoe UI", 9, "bold"), fg=THEME["text_secondary"],
+            bg=THEME["bg_secondary"], anchor="w", padx=PAD_MEDIUM
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Scrollable content
         self.canvas = tk.Canvas(
-            parent, height=height, bg=BG, highlightthickness=0
+            self.frame, bg=THEME["bg_secondary"], 
+            highlightthickness=0
         )
+        self.canvas.pack(fill=tk.BOTH, expand=True, padx=(0, 1))
+        
         self.canvas.bind("<Configure>", self._draw)
         self.canvas.bind("<Motion>", self._on_motion)
         self.canvas.bind("<Button-1>", self._on_click)
-        self.canvas.bind("<MouseWheel>", self._on_scroll)  # Windows
-        self.canvas.bind("<Button-4>", self._on_scroll)    # Linux scroll up
-        self.canvas.bind("<Button-5>", self._on_scroll)    # Linux scroll down
+        
+        # Scrollbar
+        scrollbar = tk.Scrollbar(
+            self.frame, orient=tk.VERTICAL,
+            command=self.canvas.yview,
+            bg=THEME["bg_tertiary"],
+            troughcolor=THEME["bg_secondary"],
+            borderwidth=0, highlightthickness=0,
+            activebackground=THEME["accent"]
+        )
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.config(yscrollcommand=scrollbar.set)
         
         self._draw()
     
-    def pack(self, **kwargs):
-        self.canvas.pack(**kwargs)
-    
     def set_files(self, files):
-        """Update file list"""
         self.files = files
-        self.scroll_offset = 0
+        self._update_scroll()
         self._draw()
     
-    def update_file_status(self, path, status, pdf_path=None):
-        """Update status of a specific file"""
+    def update_file(self, path, status, pdf_path=None):
         for f in self.files:
             if f["path"] == path:
                 f["status"] = status
@@ -420,328 +374,286 @@ class FileList:
                 break
         self._draw()
     
-    def _get_visible_rows(self):
-        total = len(self.files)
-        start = self.scroll_offset
-        end = min(start + self.visible_rows, total)
-        return self.files[start:end], start
+    def _update_scroll(self):
+        h = len(self.files) * self.row_height
+        self.canvas.config(scrollregion=(0, 0, SIDEBAR_WIDTH, h))
     
     def _draw(self, event=None):
         c = self.canvas
         c.delete("all")
-        w = c.winfo_width()
-        h = c.winfo_height()
+        w = self.canvas.winfo_width()
         
         if w < 10:
             return
         
-        visible, start = self._get_visible_rows()
-        
-        for i, file_info in enumerate(visible):
+        for i, file_info in enumerate(self.files):
             y = i * self.row_height
-            row_idx = start + i
             
             # Background
-            if row_idx == self.hover_row:
-                bg = BG_LIGHT
-            else:
-                bg = BG
-            
-            # Row background
+            bg = THEME["bg_hover"] if i == self.hover_idx else THEME["bg_secondary"]
             c.create_rectangle(0, y, w, y + self.row_height - 1,
-                             fill=bg, outline="", tags=f"row_{row_idx}")
-            
-            if not visible:
-                continue
+                             fill=bg, outline="", tags=f"row_{i}")
             
             name = file_info["display_name"]
             status = file_info["status"]
-            pdf_path = file_info.get("pdf_path")
-            
-            # Status icon and color
-            if status == STATUS_PENDING:
-                icon = "⏳"
-                color = TEXT_DIM
-                status_text = "Waiting"
-            elif status == STATUS_CONVERTING:
-                icon = "⟳"
-                color = ACCENT
-                status_text = "Converting..."
-            elif status == STATUS_DONE:
-                icon = "✓"
-                color = SUCCESS
-                status_text = "Done"
-            else:  # failed
-                icon = "✗"
-                color = ERROR
-                status_text = "Failed"
             
             # Icon
-            c.create_text(PAD_MEDIUM, y + self.row_height // 2,
-                         text=icon, font=("Segoe UI", 14),
-                         fill=color, anchor="w")
+            if status == "pending":
+                icon = "○"
+                color = THEME["text_muted"]
+            elif status == "converting":
+                icon = "⟳"
+                color = THEME["accent"]
+            elif status == "done":
+                icon = "●"
+                color = THEME["success"]
+            else:  # failed
+                icon = "●"
+                color = THEME["error"]
             
-            # Filename
-            name_x = PAD_MEDIUM + 24
-            c.create_text(name_x, y + self.row_height // 2 - 6,
-                         text=name, font=("Segoe UI", 9),
-                         fill=TEXT, anchor="w")
+            c.create_text(
+                PAD_MEDIUM, y + self.row_height/2,
+                text=icon, fill=color, font=("Segoe UI", 12),
+                anchor="w"
+            )
             
-            # Status text
-            c.create_text(name_x, y + self.row_height // 2 + 8,
-                         text=status_text, font=("Segoe UI", 8),
-                         fill=color, anchor="w")
+            # Filename (truncated)
+            max_width = w - 50
+            text_width = tkinter.font.Font(font=("Segoe UI", 9)).measure(name)
+            if text_width > max_width:
+                name = name[:int(max_width / 7)] + "..."
             
-            # Click indicator for completed files
-            if status == STATUS_DONE and pdf_path:
-                c.create_text(w - PAD_MEDIUM, y + self.row_height // 2,
-                             text="Open →", font=("Segoe UI", 8),
-                             fill=ACCENT, anchor="e")
+            c.create_text(
+                PAD_MEDIUM + 20, y + self.row_height/2,
+                text=name, fill=THEME["text_primary"],
+                font=("Segoe UI", 9), anchor="w"
+            )
     
     def _on_motion(self, event):
-        w = self.canvas.winfo_width()
-        row = int(event.y / self.row_height) + self.scroll_offset
-        
-        if 0 <= row < len(self.files):
-            if self.hover_row != row:
-                self.hover_row = row
+        idx = int(event.y / self.row_height)
+        if 0 <= idx < len(self.files):
+            if self.hover_idx != idx:
+                self.hover_idx = idx
                 self._draw()
         else:
-            if self.hover_row != -1:
-                self.hover_row = -1
+            if self.hover_idx != -1:
+                self.hover_idx = -1
                 self._draw()
     
     def _on_click(self, event):
-        row = int(event.y / self.row_height) + self.scroll_offset
-        
-        if 0 <= row < len(self.files):
-            file_info = self.files[row]
-            if file_info["status"] == STATUS_DONE and file_info.get("pdf_path"):
-                if self.on_file_click:
-                    self.on_file_click(file_info["pdf_path"])
-    
-    def _on_scroll(self, event):
-        if event.num == 4 or event.delta > 0:
-            self.scroll_offset = max(0, self.scroll_offset - 1)
-        elif event.num == 5 or event.delta < 0:
-            max_scroll = max(0, len(self.files) - self.visible_rows)
-            self.scroll_offset = min(max_scroll, self.scroll_offset + 1)
-        self._draw()
+        idx = int(event.y / self.row_height)
+        if 0 <= idx < len(self.files):
+            f = self.files[idx]
+            if f["status"] == "done" and f.get("pdf_path"):
+                if self.on_click:
+                    self.on_click(f["pdf_path"])
 
+
+class StatusBar:
+    """Status bar at bottom"""
+    def __init__(self, parent):
+        self.frame = tk.Frame(parent, bg=THEME["bg_tertiary"], height=28)
+        self.frame.pack(side=tk.BOTTOM, fill=tk.X)
+        self.frame.pack_propagate(False)
+        
+        self.label = tk.Label(
+            self.frame, text="Ready",
+            font=("Segoe UI", 8), fg=THEME["text_secondary"],
+            bg=THEME["bg_tertiary"], anchor="w", padx=PAD_MEDIUM
+        )
+        self.label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    def set_text(self, text):
+        self.label.config(text=text)
+
+
+# ============================================================================
+# MAIN APPLICATION
+# ============================================================================
 
 class App:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Comic to PDF")
-        self.root.geometry("640x700")
-        self.root.minsize(500, 550)
-        self.root.configure(bg=BG)
+        self.root.title("Comic to PDF Converter")
+        self.root.geometry(f"{DEFAULT_WIDTH}x{DEFAULT_HEIGHT}")
+        self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
+        self.root.configure(bg=THEME["bg"])
+        
+        # Center window
+        self.root.update_idletasks()
+        ws = self.root.winfo_screenwidth()
+        hs = self.root.winfo_screenheight()
+        x = (ws - DEFAULT_WIDTH) // 2
+        y = (hs - DEFAULT_HEIGHT) // 2
+        self.root.geometry(f"{DEFAULT_WIDTH}x{DEFAULT_HEIGHT}+{x}+{y}")
+        
         self.converting = False
         self.output_folder = None
         self.conversion_files = []
-
+        
         apply_dark_title_bar(self.root)
-
+        
+        # Build UI
+        self._build_ui()
+        self._setup_drag_drop()
+    
+    def _build_ui(self):
         # Main container
-        main = tk.Frame(self.root, bg=BG)
-        main.pack(fill=tk.BOTH, expand=True, padx=PAD_XL, pady=(PAD_LARGE, PAD_XL))
-
+        main = tk.Frame(self.root, bg=THEME["bg"])
+        main.pack(fill=tk.BOTH, expand=True)
+        
+        # Left content area
+        self.content = tk.Frame(main, bg=THEME["bg"])
+        self.content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
         # Header
-        self._create_header(main)
+        self._build_header()
         
         # Drop zone
-        self._create_drop_zone(main)
+        self._build_drop_zone()
         
-        # Action buttons
-        self._create_action_buttons(main)
+        # Actions
+        self._build_actions()
         
-        # File list
-        self._create_file_list(main)
+        # Progress
+        self._build_progress()
         
-        # Progress section
-        self._create_progress(main)
+        # Status bar
+        self.status = StatusBar(self.content)
         
-        # Stats and open folder
-        self._create_footer(main)
-
-        # Hook drag and drop
-        self._hook_drag_drop()
-
-    def _create_header(self, parent):
-        header = tk.Frame(parent, bg=BG)
-        header.pack(fill=tk.X, pady=(0, PAD_LARGE))
-
+        # Right sidebar
+        self.sidebar = FileSidebar(self.content, self.on_file_click)
+    
+    def _build_header(self):
+        header = tk.Frame(self.content, bg=THEME["bg"], height=50)
+        header.pack(fill=tk.X, pady=(PAD_XL, PAD_LARGE))
+        header.pack_propagate(False)
+        
         tk.Label(
             header, text="Comic to PDF",
-            font=("Segoe UI", 20, "bold"), fg=TEXT, bg=BG
-        ).pack(side=tk.LEFT)
-
-        # Format badges
-        badge1 = tk.Label(
-            header, text=" CBR ",
-            font=("Segoe UI", 8, "bold"), fg=PURPLE, bg=CARD,
-            padx=8, pady=3
-        )
-        badge1.pack(side=tk.LEFT, padx=(PAD_MEDIUM, 0))
+            font=("Segoe UI", 18, "bold"), fg=THEME["text_primary"],
+            bg=THEME["bg"], anchor="w"
+        ).pack(side=tk.LEFT, fill=tk.X)
+    
+    def _build_drop_zone(self):
+        self.drop_frame = tk.Frame(self.content, bg=THEME["bg"])
+        self.drop_frame.pack(fill=tk.BOTH, expand=True, padx=PAD_XL)
         
-        badge2 = tk.Label(
-            header, text=" CBZ ",
-            font=("Segoe UI", 8, "bold"), fg=BLUE, bg=CARD,
-            padx=8, pady=3
-        )
-        badge2.pack(side=tk.LEFT, padx=(PAD_SMALL, 0))
-
-    def _create_drop_zone(self, parent):
         self.drop_zone = tk.Canvas(
-            parent, height=120, bg=BG_MID, highlightthickness=0, cursor="hand2"
+            self.drop_frame, bg=THEME["bg_secondary"],
+            highlightthickness=1, highlightbackground=THEME["border"],
+            cursor="hand2"
         )
-        self.drop_zone.pack(fill=tk.X)
+        self.drop_zone.pack(fill=tk.BOTH, expand=True)
+        
         self.drop_zone.bind("<Configure>", self._draw_drop_zone)
         self.drop_zone.bind("<Button-1>", lambda e: self.browse())
+        self.drop_zone.bind("<Enter>", lambda e: self._draw_drop_zone(hover=True))
+        self.drop_zone.bind("<Leave>", lambda e: self._draw_drop_zone(hover=False))
+        
         self._drop_hover = False
-        self.drop_zone.bind("<Enter>", self._on_drop_enter)
-        self.drop_zone.bind("<Leave>", self._on_drop_leave)
-
-    def _create_action_buttons(self, parent):
-        btn_frame = tk.Frame(parent, bg=BG)
-        btn_frame.pack(fill=tk.X, pady=(PAD_MEDIUM, 0))
-
-        self.browse_btn = Button(btn_frame, "Browse Files", self.browse, primary=True)
+    
+    def _build_actions(self):
+        actions = tk.Frame(self.content, bg=THEME["bg"])
+        actions.pack(fill=tk.X, padx=PAD_XL, pady=PAD_LARGE)
+        
+        self.browse_btn = ModernButton(actions, "Browse Files", self.browse, primary=True)
         self.browse_btn.pack(side=tk.LEFT)
-
-        self.clear_btn = Button(btn_frame, "Clear", self.clear_queue, primary=False)
+        
+        self.clear_btn = ModernButton(actions, "Clear", self.clear, primary=False, small=True)
         self.clear_btn.pack(side=tk.LEFT, padx=(PAD_MEDIUM, 0))
         self.clear_btn.set_enabled(False)
-
-    def _create_file_list(self, parent):
-        self.file_list = FileList(parent, self.on_file_click)
-        self.file_list.pack(fill=tk.X, pady=(PAD_LARGE, 0))
-
-    def _create_progress(self, parent):
-        prog_frame = tk.Frame(parent, bg=BG)
-        prog_frame.pack(fill=tk.X, pady=(PAD_LARGE, 0))
-
-        self.progress_label = tk.Label(
-            prog_frame, text="Drop files to start",
-            font=("Segoe UI", 9), fg=TEXT_DIM, bg=BG, anchor="w"
+        
+        self.open_btn = ModernButton(actions, "Open Folder", self.open_folder, primary=False, small=True)
+        self.open_btn.pack(side=tk.RIGHT)
+        self.open_btn.set_enabled(False)
+    
+    def _build_progress(self):
+        prog = tk.Frame(self.content, bg=THEME["bg"])
+        prog.pack(fill=tk.X, padx=PAD_XL, pady=(0, PAD_LARGE))
+        
+        self.progress_canvas = tk.Canvas(
+            prog, height=4, bg=THEME["bg_tertiary"],
+            highlightthickness=0
         )
-        self.progress_label.pack(fill=tk.X)
-
-        self.prog_canvas = tk.Canvas(
-            prog_frame, height=6, bg=CARD, highlightthickness=0
-        )
-        self.prog_canvas.pack(fill=tk.X, pady=(PAD_SMALL, 0))
-        self.prog_canvas.bind("<Configure>", self._draw_progress)
-        self.progress_value = 0
-        self.progress_max = 1
-
-    def _create_footer(self, parent):
-        footer = tk.Frame(parent, bg=BG)
-        footer.pack(fill=tk.X, pady=(PAD_MEDIUM, 0))
-
-        self.stat_success = tk.Label(
-            footer, text="", font=("Segoe UI", 9),
-            fg=SUCCESS, bg=BG
-        )
-        self.stat_success.pack(side=tk.LEFT)
-
-        self.stat_failed = tk.Label(
-            footer, text="", font=("Segoe UI", 9),
-            fg=ERROR, bg=BG
-        )
-        self.stat_failed.pack(side=tk.LEFT, padx=(PAD_MEDIUM, 0))
-
-        self.open_folder_btn = Button(
-            footer, "Open Output Folder",
-            self.open_output_folder, primary=False
-        )
-        self.open_folder_btn.pack(side=tk.RIGHT)
-        self.open_folder_btn.set_enabled(False)
-
-    def _draw_drop_zone(self, event=None):
+        self.progress_canvas.pack(fill=tk.X)
+        
+        self.progress = 0
+        self.total = 1
+        self._draw_progress()
+    
+    def _draw_drop_zone(self, event=None, hover=False):
         c = self.drop_zone
         c.delete("all")
         w, h = c.winfo_width(), c.winfo_height()
-        pad = 2
-
-        fill = BG_LIGHT if self._drop_hover else BG_MID
-        self._draw_rounded_rect(c, pad, pad, w - pad, h - pad, 12,
-                                fill=fill, outline=CARD_BORDER, width=1)
-
-        inset = 8
-        dash_color = ACCENT if self._drop_hover else PURPLE
-        self._draw_rounded_rect(
-            c, inset, inset, w - inset, h - inset, 8,
-            fill="", outline=dash_color, width=1.5, dash=(4, 3)
+        
+        # Draw centered content
+        cx, cy = w/2, h/2
+        
+        icon = "↓" if hover else "↓"
+        color = THEME["accent"] if hover else THEME["text_secondary"]
+        
+        c.create_text(
+            cx, cy - 20,
+            text=icon, fill=color, font=("Segoe UI", 32)
         )
-
-        cx = w // 2
-        cy = h // 2
-
-        icon_color = GREEN if self._drop_hover else ACCENT
-        c.create_text(cx, cy - 8, text="📁",
-                      font=("Segoe UI", 32), fill=icon_color)
-
-        label_color = TEXT if self._drop_hover else TEXT_MID
-        c.create_text(cx, cy + 18, text="Drop CBR/CBZ files here or click to browse",
-                      font=("Segoe UI", 10), fill=label_color)
-
-    def _on_drop_enter(self, e):
-        self._drop_hover = True
-        self._draw_drop_zone()
-
-    def _on_drop_leave(self, e):
-        self._drop_hover = False
-        self._draw_drop_zone()
-
-    def _draw_rounded_rect(self, canvas, x1, y1, x2, y2, r, **kw):
-        points = []
-        for (cx, cy, sa) in [
-            (x2 - r, y1 + r, -90), (x2 - r, y2 - r, 0),
-            (x1 + r, y2 - r, 90), (x1 + r, y1 + r, 180)
-        ]:
-            for i in range(13):
-                a = math.radians(sa + i * 90 / 12)
-                points.extend([cx + r * math.cos(a), cy + r * math.sin(a)])
-        return canvas.create_polygon(points, smooth=True, **kw)
-
-    def _draw_progress(self, event=None):
-        c = self.prog_canvas
+        c.create_text(
+            cx, cy + 10,
+            text="Drop CBR/CBZ files here",
+            fill=THEME["text_primary"], font=("Segoe UI", 11, "bold")
+        )
+        c.create_text(
+            cx, cy + 30,
+            text="or click to browse",
+            fill=THEME["text_secondary"], font=("Segoe UI", 9)
+        )
+    
+    def _draw_progress(self):
+        c = self.progress_canvas
         c.delete("all")
-        w, h = c.winfo_width()
-
-        self._draw_rounded_rect(c, 0, 0, w, h, 3, fill=CARD, outline="")
-
-        if self.progress_max > 0 and self.progress_value > 0:
-            fill_w = max(6, int(w * self.progress_value / self.progress_max))
-            self._draw_rounded_rect(c, 0, 0, fill_w, h, 3,
-                                    fill=GREEN, outline="")
-
-    def _hook_drag_drop(self):
+        w, h = c.winfo_width(), c.winfo_height()
+        
+        # Background
+        c.create_rectangle(0, 0, w, h, fill=THEME["bg_tertiary"], outline="")
+        
+        # Fill
+        if self.total > 0:
+            fill_w = int(w * self.progress / self.total)
+            c.create_rectangle(0, 0, fill_w, h, fill=THEME["accent"], outline="")
+    
+    def _setup_drag_drop(self):
         if USE_TKINTERDND2:
             try:
                 tkdnd.TkinterDnD().bindroot(self.root)
                 self.root.drop_target_register(tkdnd.DND_FILES)
                 self.root.dnd_bind('<<Drop>>', self._on_tkdnd_drop)
-            except Exception:
-                pass
-        elif windnd is not None:
-            windnd.hook_dropfiles(self.root, func=self.on_drop)
-
+                self.status.set_text("Drag & drop enabled")
+            except Exception as e:
+                self.status.set_text("Drag & drop unavailable")
+        elif windnd:
+            windnd.hook_dropfiles(self.root, func=self._on_windnd_drop)
+            self.status.set_text("Drag & drop enabled")
+        else:
+            self.status.set_text("Install tkinterdnd2 for drag & drop")
+    
     def _on_tkdnd_drop(self, event):
         if self.converting:
             return
         files_str = event.data
         if files_str.startswith('{') and files_str.endswith('}'):
             files_str = files_str[1:-1]
-        
         try:
             paths = shlex.split(files_str)
         except:
             paths = files_str.split()
-        
         self.start_conversion(list(paths))
-
+    
+    def _on_windnd_drop(self, files):
+        if self.converting:
+            return
+        paths = [f.decode("utf-8") if isinstance(f, bytes) else f for f in files]
+        self.start_conversion(paths)
+    
     def browse(self):
         if self.converting:
             return
@@ -751,137 +663,109 @@ class App:
         )
         if paths:
             self.start_conversion(list(paths))
-
-    def on_drop(self, files):
-        if self.converting:
-            return
-        paths = [f.decode("utf-8") if isinstance(f, bytes) else f for f in files]
-        self.start_conversion(paths)
-
-    def on_file_click(self, pdf_path):
-        open_file_or_folder(pdf_path)
-
-    def clear_queue(self):
+    
+    def clear(self):
         if self.converting:
             return
         self.conversion_files = []
-        self.file_list.set_files([])
-        self.progress_label.configure(text="Drop files to start", fg=TEXT_DIM)
-        self.progress_value = 0
-        self._draw_progress()
-        self.stat_success.configure(text="")
-        self.stat_failed.configure(text="")
-        self.open_folder_btn.set_enabled(False)
+        self.sidebar.set_files([])
         self.clear_btn.set_enabled(False)
-
+        self.open_btn.set_enabled(False)
+        self.progress = 0
+        self.total = 1
+        self._draw_progress()
+        self.status.set_text("Cleared")
+    
+    def open_folder(self):
+        if self.output_folder:
+            open_file_or_folder(self.output_folder)
+    
+    def on_file_click(self, pdf_path):
+        open_file_or_folder(pdf_path)
+    
     def start_conversion(self, paths):
         comics = find_comic_files(paths)
         if not comics:
+            self.status.set_text("No comic files found")
             return
         
         self.conversion_files = [{
             "path": c,
-            "status": STATUS_PENDING,
+            "status": "pending",
             "pdf_path": None,
             "display_name": os.path.basename(c)
         } for c in comics]
         
-        self.file_list.set_files(self.conversion_files)
+        self.sidebar.set_files(self.conversion_files)
         self.clear_btn.set_enabled(True)
         self.converting = True
         
-        threading.Thread(target=self.run_conversion, args=(comics,), daemon=True).start()
-
-    def run_conversion(self, comics):
-        total = len(comics)
+        # Set output folder
         first_dir = os.path.dirname(comics[0])
-        pdf_folder = os.path.join(first_dir, "Converted PDFs")
-        os.makedirs(pdf_folder, exist_ok=True)
-        self.output_folder = pdf_folder
-
-        self.root.after(0, lambda: self.progress_label.configure(
-            text=f"Converting {total} file{'s' if total > 1 else ''}...", fg=TEXT_MID
-        ))
-        self.root.after(0, lambda: self._update_progress(0, total))
-        self.root.after(0, lambda: self._update_stats(0, 0))
-
+        self.output_folder = os.path.join(first_dir, "Converted PDFs")
+        os.makedirs(self.output_folder, exist_ok=True)
+        
+        self.status.set_text(f"Converting {len(comics)} file(s)...")
+        
+        threading.Thread(target=self._run_conversion, args=(comics,), daemon=True).start()
+    
+    def _run_conversion(self, comics):
+        total = len(comics)
         success = 0
         failed = 0
         
         for i, comic in enumerate(comics):
-            # Update to converting
-            self.root.after(0, lambda p=comic: self.file_list.update_file_status(p, STATUS_CONVERTING))
+            self.root.after(0, lambda p=comic: self.sidebar.update_file(p, "converting"))
             
-            # Convert
-            result, pdf_path = convert_one(comic, pdf_folder, lambda *a: None)
+            result, pdf_path, msg = convert_comic(comic, self.output_folder)
             
             if result:
                 success += 1
                 self.root.after(0, lambda p=comic, pdf=pdf_path: 
-                               self.file_list.update_file_status(p, STATUS_DONE, pdf))
+                               self.sidebar.update_file(p, "done", pdf))
             else:
                 failed += 1
                 self.root.after(0, lambda p=comic: 
-                               self.file_list.update_file_status(p, STATUS_FAILED))
+                               self.sidebar.update_file(p, "failed"))
             
-            self.root.after(0, lambda: self._update_progress(i + 1, total))
-            self.root.after(0, lambda: self._update_stats(success, failed))
-
-        # Done
-        self.converting = False
-        self.root.after(0, self._on_conversion_complete, success, failed)
-
-    def _update_progress(self, value, maximum):
-        self.progress_value = value
-        self.progress_max = maximum
-        self._draw_progress()
-
-    def _update_stats(self, success, failed):
-        s = f"✓ {success} converted" if success else ""
-        f = f"✗ {failed} failed" if failed else ""
-        self.stat_success.configure(text=s)
-        self.stat_failed.configure(text=f)
-
-    def _on_conversion_complete(self, success, failed):
-        if failed == 0:
-            self.progress_label.configure(text="Complete!", fg=SUCCESS)
-        else:
-            self.progress_label.configure(
-                text=f"Done with {failed} error{'s' if failed > 1 else ''}", 
-                fg=ERROR if success == 0 else TEXT_MID
-            )
+            self.root.after(0, lambda: setattr(self, 'progress', i + 1))
+            self.root.after(0, self._draw_progress)
         
-        self.open_folder_btn.set_enabled(True)
-
-    def open_output_folder(self):
-        if self.output_folder:
-            open_file_or_folder(self.output_folder)
-
+        self.converting = False
+        self.root.after(0, self._on_complete, success, failed)
+    
+    def _on_complete(self, success, failed):
+        if failed == 0:
+            self.status.set_text(f"✓ Complete: {success} converted")
+        else:
+            self.status.set_text(f"✗ Done: {success} succeeded, {failed} failed")
+        self.open_btn.set_enabled(True)
+    
     def run(self):
         self.root.mainloop()
 
 
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+
 if __name__ == "__main__":
+    # Check dependencies
     missing = []
-    try:
-        import img2pdf
-    except ImportError:
+    if not HAS_IMG2PDF:
         missing.append("img2pdf")
-    
-    try:
-        import rarfile
-    except ImportError:
+    if not HAS_RARFILE:
         missing.append("rarfile")
     
     if missing:
         root = tk.Tk()
         root.withdraw()
         messagebox.showerror(
-            "Error", 
-            f"Missing dependencies:\n" + "\n".join(f"  - {m}" for m in missing) +
-            "\n\nInstall with: pip install -r requirements.txt"
+            "Missing Dependencies",
+            f"Please install:\n" + "\n".join(f"  - {m}" for m in missing) +
+            "\n\nRun: pip install -r requirements.txt"
         )
-        root.destroy()
         sys.exit(1)
     
-    App().run()
+    app = App()
+    app.run()
