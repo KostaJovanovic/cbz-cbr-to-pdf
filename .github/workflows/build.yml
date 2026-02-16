@@ -33,27 +33,28 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         mkdir -p binaries/linux
-        wget https://www.rarlab.com/rar/unrar-linux-x64-6.2.12.tar.gz
-        tar -xzf unrar-linux-x64-6.2.12.tar.gz
-        cp unrar binaries/linux/
+        curl -sL https://www.rarlab.com/rar/rarlinux-x64-720.tar.gz | tar -xz
+        cp rar/unrar binaries/linux/
         chmod +x binaries/linux/unrar
+        rm -rf rar
     
     - name: Download unrar binaries (macOS)
       if: matrix.os == 'macos-latest'
       run: |
         mkdir -p binaries/macos
-        wget https://www.rarlab.com/rar/unrar-macos-6.2.12.tar.gz
-        tar -xzf unrar-macos-6.2.12.tar.gz
-        cp unrar binaries/macos
+        curl -sL https://www.rarlab.com/rar/rarmacos-x64-720.tar.gz | tar -xz
+        cp rar/unrar binaries/macos/
         chmod +x binaries/macos/unrar
+        rm -rf rar
     
     - name: Download unrar binaries (Windows)
       if: matrix.os == 'windows-latest'
       run: |
         mkdir binaries\windows
-        curl -L -o unrar-win-x64-6.2.12.tar.gz https://www.rarlab.com/rar/unrar-win-x64-6.2.12.tar.gz
-        tar -xzf unrar-win-x64-6.2.12.tar.gz
-        copy unrar.exe binaries\windows\
+        curl -sL -o winrar-x64-720.exe https://www.rarlab.com/rar/winrar-x64-720.exe
+        # For Windows, we'll use UnRAR source or a pre-built binary
+        # For now, skip Windows unrar and rely on users having it installed
+        echo "Windows unrar not bundled - users need to install separately"
       shell: cmd
     
     - name: Build with PyInstaller

@@ -20,9 +20,9 @@ A cross-platform GUI tool that batch converts CBR and CBZ comic book archives to
 
 Get the latest release for your platform:
 
-- **[Windows](https://github.com/omznc/cbz-cbr-to-pdf/releases/latest)** - `comic-to-pdf-windows.exe`
-- **[macOS](https://github.com/omznc/cbz-cbr-to-pdf/releases/latest)** - `comic-to-pdf-macos`
-- **[Linux](https://github.com/omznc/cbz-cbr-to-pdf/releases/latest)** - `comic-to-pdf-linux`
+- **[Windows](../../releases/latest)** - `comic-to-pdf-windows.exe`
+- **[macOS](../../releases/latest)** - `comic-to-pdf-macos`
+- **[Linux](../../releases/latest)** - `comic-to-pdf-linux`
 
 Just download and run - no installation required!
 
@@ -55,26 +55,8 @@ You can build executables for your platform using PyInstaller:
 # Install PyInstaller
 pip install pyinstaller
 
-# Download unrar binary for your platform
-
-# Linux:
-mkdir -p binaries/linux
-wget https://www.rarlab.com/rar/unrar-linux-x64-6.2.12.tar.gz
-tar -xzf unrar-linux-x64-6.2.12.tar.gz
-cp unrar binaries/linux/
-chmod +x binaries/linux/unrar
-
-# macOS:
-mkdir -p binaries/macos
-wget https://www.rarlab.com/rar/unrar-macos-6.2.12.tar.gz
-tar -xzf unrar-macos-6.2.12.tar.gz
-cp unrar binaries/macos
-chmod +x binaries/macos/unrar
-
-# Windows:
-mkdir binaries\windows
-# Download UnRAR.exe from https://www.rarlab.com/rar_add.htm
-# Place it in binaries\windows\UnRAR.exe
+# Download unrar binaries
+./download_binaries.sh
 
 # Build executable
 pyinstaller comic_to_pdf.spec
@@ -90,21 +72,6 @@ The executable will be in the `dist/` directory.
 4. Combines them into a multi-page PDF using `img2pdf`
 5. Cleans up temporary extracted files
 
-## What Changed
-
-This is a cross-platform fork of [KostaJovanovic/cbz-cbr-to-pdf](https://github.com/KostaJovanovic/cbz-cbr-to-pdf) with the following improvements:
-
-- **Removed 7-Zip dependency** - No longer requires 7-Zip to be installed
-- **Cross-platform support** - Works on Windows, macOS, and Linux
-- **Bundled unrar binary** - Includes unrar for RAR extraction
-- **Cross-platform drag-and-drop** - Uses tkinterdnd2 for drag-and-drop on all platforms
-- **Self-contained executables** - No external dependencies needed
-
 ## License
 
 MIT License - see LICENSE file for details
-
-## Credits
-
-- Original project by [KostaJovanovic](https://github.com/KostaJovanovic/cbz-cbr-to-pdf)
-- Cross-platform improvements by [omznc](https://github.com/omznc)

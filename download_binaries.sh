@@ -3,39 +3,42 @@
 
 set -e
 
-UNRAR_VERSION="6.2.12"
-
-echo "Downloading UnRAR binaries..."
+echo "Downloading RAR packages and extracting unrar..."
 
 # Linux
 mkdir -p binaries/linux
 echo "Downloading for Linux..."
-curl -L -o binaries/linux/unrar.tar.gz "https://www.rarlab.com/rar/unrar-linux-x64-${UNRAR_VERSION}.tar.gz" || echo "Warning: Failed to download Linux unrar"
-if [ -f "binaries/linux/unrar.tar.gz" ]; then
-    tar -xzf binaries/linux/unrar.tar.gz -C binaries/linux/ --strip-components=1 unrar
-    rm binaries/linux/unrar.tar.gz
+if [ ! -f "binaries/linux/unrar" ]; then
+    curl -sL https://www.rarlab.com/rar/rarlinux-x64-720.tar.gz | tar -xz
+    cp rar/unrar binaries/linux/
     chmod +x binaries/linux/unrar
+    rm -rf rar
     echo "✓ Linux unrar downloaded"
+else
+    echo "✓ Linux unrar already exists"
 fi
 
 # macOS
 mkdir -p binaries/macos
 echo "Downloading for macOS..."
-curl -L -o binaries/macos/unrar.tar.gz "https://www.rarlab.com/rar/unrar-macos-${UNRAR_VERSION}.tar.gz" || echo "Warning: Failed to download macOS unrar"
-if [ -f "binaries/macos/unrar.tar.gz" ]; then
-    tar -xzf binaries/macos/unrar.tar.gz -C binaries/macos/ --strip-components=1 unrar
-    rm binaries/macos/unrar.tar.gz
+if [ ! -f "binaries/macos/unrar" ]; then
+    curl -sL https://www.rarlab.com/rar/rarmacos-x64-720.tar.gz | tar -xz
+    cp rar/unrar binaries/macos/
     chmod +x binaries/macos/unrar
+    rm -rf rar
     echo "✓ macOS unrar downloaded"
+else
+    echo "✓ macOS unrar already exists"
 fi
 
-# Windows (placeholder)
+# Windows (placeholder - users need to download manually)
 mkdir -p binaries/windows
-echo "For Windows: Please download UnRAR.exe manually from https://www.rarlab.com/rar_add.htm"
+echo "For Windows: Download UnRAR.exe from https://www.rarlab.com/rar_add.htm"
+echo "Or extract from winrar-x64-720.exe installation"
 echo "Place it in binaries/windows/UnRAR.exe"
 
 echo ""
 echo "Binary downloads complete!"
 echo ""
 echo "Directory structure:"
-ls -lh binaries/*/
+ls -lh binaries/*/ 2>/dev/null || echo "No binaries found"
