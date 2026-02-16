@@ -1,14 +1,63 @@
 import tkinter as tk
 from tkinter import filedialog
-import windnd
 import os
-import subprocess
+import platform
 import threading
 import img2pdf
 import math
 import random
+import shutil
 
-SEVEN_ZIP = r"C:\Program Files\7-Zip\7z.exe"
+# Cross-platform drag-and-drop
+try:
+    import tkinterdnd2 as tkdnd
+    USE_TKINTERDND2 = True
+except ImportError:
+    try:
+        import windnd
+        USE_TKINTERDND2 = False
+    except ImportError:
+        USE_TKINTERDND2 = False
+        windnd = None
+
+
+def get_unrar_path():
+    """Get path to bundled unrar binary for current platform"""
+    system = platform.system().lower()
+    
+    # Check if we're running from a PyInstaller bundle
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    if system == "windows":
+        return os.path.join(base_path, "binaries", "windows", "UnRAR.exe")
+    elif system == "darwin":
+        return os.path.join(base_path, "binaries", "macos", "unrar")
+    else:  # linux and others
+        return os.path.join(base_path, "binaries", "linux", "unrar")
+
+
+def setup_rarfile():
+    """Configure rarfile to use bundled unrar"""
+    import rarfile
+    unrar_path = get_unrar_path()
+    if os.path.exists(unrar_path):
+        rarfile.UNRAR_TOOL = unrar_path
+        return True
+    return False
+
+
+def apply_dark_title_bar(root):
+    """Apply dark title bar on Windows 10+ (optional, fails silently on other platforms)"""
+    try:
+        if platform.system() == "Windows":
+            from ctypes import windll, c_int, byref
+            hwnd = windll.user32.GetParent(root.winfo_id())
+            windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, byref(c_int(1)), 4)
+    except Exception:
+        pass  # Silently fail on non-Windows or older Windows
 
 
 def _hex_to_rgb(h):
@@ -125,6 +174,29 @@ ERROR = _theme["ERROR"]
 LOG_BG = _theme["LOG_BG"]
 
 
+def extract_zip(zip_path, extract_to):
+    """Extract ZIP archive using built-in zipfile"""
+    import zipfile
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(extract_to)
+        return True
+    except Exception as e:
+        return False
+
+
+def extract_rar(rar_path, extract_to):
+    """Extract RAR archive using rarfile with bundled unrar"""
+    import rarfile
+    try:
+        setup_rarfile()
+        with rarfile.RarFile(rar_path) as rf:
+            rf.extractall(extract_to)
+        return True
+    except Exception as e:
+        return False
+
+
 def find_comic_files(paths):
     files = []
     for p in paths:
@@ -148,17 +220,18 @@ def convert_one(comic_path, pdf_folder, log_func):
         return True
 
     log_func(f"  Extracting: {os.path.basename(comic_path)}", "normal")
-    try:
-        result = subprocess.run(
-            [SEVEN_ZIP, "x", comic_path, f"-o{out_dir}", "-y"],
-            capture_output=True, text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-        if result.returncode != 0:
-            log_func(f"  ERROR extracting: {result.stderr.strip()}", "error")
-            return False
-    except Exception as e:
-        log_func(f"  ERROR extracting: {e}", "error")
+    
+    # Extract based on file type
+    if comic_path.lower().endswith('.cbz'):
+        success = extract_zip(comic_path, out_dir)
+    elif comic_path.lower().endswith('.cbr'):
+        success = extract_rar(comic_path, out_dir)
+    else:
+        log_func(f"  ERROR: Unsupported format", "error")
+        return False
+    
+    if not success:
+        log_func(f"  ERROR: Failed to extract archive", "error")
         return False
 
     exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".gif", ".webp")
@@ -191,7 +264,6 @@ def convert_one(comic_path, pdf_folder, log_func):
 
 def _cleanup(out_dir):
     try:
-        import shutil
         shutil.rmtree(out_dir, ignore_errors=True)
     except Exception:
         pass
@@ -206,13 +278,8 @@ class App:
         self.root.configure(bg=BG)
         self.converting = False
 
-        # Dark title bar
-        try:
-            from ctypes import windll, c_int, byref
-            hwnd = windll.user32.GetParent(self.root.winfo_id())
-            windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, byref(c_int(1)), 4)
-        except Exception:
-            pass
+        # Apply dark title bar on Windows (optional)
+        apply_dark_title_bar(self.root)
 
         # Main container with padding
         main = tk.Frame(self.root, bg=BG)
@@ -337,7 +404,40 @@ class App:
         self.log_text.tag_configure("accent", foreground=ACCENT)
 
         # Hook drag and drop
-        windnd.hook_dropfiles(self.root, func=self.on_drop)
+        self._hook_drag_drop()
+
+    def _hook_drag_drop(self):
+        """Setup cross-platform drag-and-drop"""
+        if USE_TKINTERDND2:
+            try:
+                tkdnd.TkinterDnD().bindroot(self.root)
+                self.root.drop_target_register(tkdnd.DND_FILES)
+                self.root.dnd_bind('<<Drop>>', self._on_tkdnd_drop)
+            except Exception as e:
+                self.log("Warning: tkinterdnd2 available but failed to initialize", "dim")
+        elif windnd is not None:
+            windnd.hook_dropfiles(self.root, func=self.on_drop)
+        else:
+            self.log("Warning: No drag-and-drop support available.\nInstall tkinterdnd2 for cross-platform support.", "dim")
+
+    def _on_tkdnd_drop(self, event):
+        """Handle tkinterdnd2 drop event"""
+        if self.converting:
+            return
+        # Parse the dropped files
+        files_str = event.data
+        # Handle different formats: can be space-separated or enclosed in braces
+        if files_str.startswith('{') and files_str.endswith('}'):
+            files_str = files_str[1:-1]
+        
+        # Split by space, respecting quoted paths
+        import shlex
+        try:
+            paths = shlex.split(files_str)
+        except:
+            paths = files_str.split()
+        
+        self.start_conversion(paths)
 
     # --- Drawing Methods ---
 
@@ -528,10 +628,29 @@ class App:
 
 
 if __name__ == "__main__":
-    if not os.path.exists(SEVEN_ZIP):
+    import sys
+    
+    # Check for required dependencies
+    missing = []
+    try:
+        import img2pdf
+    except ImportError:
+        missing.append("img2pdf")
+    
+    try:
+        import rarfile
+    except ImportError:
+        missing.append("rarfile")
+    
+    if missing:
         root = tk.Tk()
         root.withdraw()
-        tk.messagebox.showerror("Error", f"7-Zip not found at:\n{SEVEN_ZIP}")
+        tk.messagebox.showerror(
+            "Error", 
+            f"Missing dependencies:\n" + "\n".join(f"  - {m}" for m in missing) +
+            "\n\nInstall with: pip install -r requirements.txt"
+        )
         root.destroy()
-    else:
-        App().run()
+        sys.exit(1)
+    
+    App().run()
