@@ -4,13 +4,15 @@ A Windows GUI tool that batch converts CBR and CBZ comic book archives to PDF fi
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 
+## How to run
+
+- Check all dependencies, download and run the .pyw file. Everything else should be intuitive
+
 ## Features
 
 - Drag and drop CBR/CBZ files or entire folders
-- Browse files manually via file dialog
-- Batch converts all comics found in dropped folders (recursive)
+- Batch converts all comics found in dropped folders
 - Skips files that already have a matching PDF
-- Live progress bar and activity log
 - Outputs all PDFs to a `Converted PDFs` folder next to the source files
 
 ## Requirements
