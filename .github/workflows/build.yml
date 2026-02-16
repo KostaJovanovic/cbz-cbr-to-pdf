@@ -27,7 +27,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller img2pdf Pillow rarfile tkinterdnd2 patoolib
+        pip install -r requirements.txt
     
     - name: Download unrar binaries (Linux)
       if: matrix.os == 'ubuntu-latest'
