@@ -10,21 +10,38 @@ A cross-platform GUI tool that batch converts CBR and CBZ comic book archives to
 
 - ✅ Drag and drop CBR/CBZ files or entire folders
 - ✅ Batch converts all comics found in dropped folders
+- ✅ Real-time file list with conversion status
+- ✅ **Click converted files to open them directly**
+- ✅ **Open output folder button** when conversion completes
+- ✅ Clear queue to start fresh
 - ✅ Skips files that already have a matching PDF
 - ✅ Outputs all PDFs to a `Converted PDFs` folder
 - ✅ **Cross-platform** (Windows, macOS, Linux)
 - ✅ **Self-contained** - no external tools required!
-- ✅ Beautiful dark UI with random color themes
+- ✅ Modern dark UI with random color themes
 
 ## Download
 
+### Latest Release
 Get the latest release for your platform:
 
 - **[Windows](../../releases/latest)** - `comic-to-pdf-windows.exe`
-- **[macOS](../../releases/latest)** - `comic-to-pdf-macos`
+- **[macOS](../../releases/latest)** - `comic-to-pdf-macos`  
 - **[Linux](../../releases/latest)** - `comic-to-pdf-linux`
 
 Just download and run - no installation required!
+
+### Latest Build (Manual)
+For the most recent changes, check the [latest automatic build](../../releases/tag/latest).
+
+## Usage
+
+1. **Add files**: Drag & drop CBR/CBZ files or click "Browse Files"
+2. **Convert**: Conversion starts automatically
+3. **View progress**: Watch real-time status in the file list
+4. **Open files**: Click any converted file to open it
+5. **Open folder**: Click "Open Output Folder" to see all PDFs
+6. **Clear**: Click "Clear" to start with a new batch
 
 ## How to Run (From Source)
 
