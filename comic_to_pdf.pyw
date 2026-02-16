@@ -6,31 +6,123 @@ import subprocess
 import threading
 import img2pdf
 import math
+import random
 
 SEVEN_ZIP = r"C:\Program Files\7-Zip\7z.exe"
 
-# Palette: #a2faa3, #92c9b1, #4f759b, #5d5179
-BG = "#1e1833"
-BG_MID = "#261f3a"
-BG_LIGHT = "#2e2642"
-CARD = "#352d4a"
-CARD_HOVER = "#3e3555"
-CARD_BORDER = "#4a4065"
-ACCENT = "#92c9b1"
-ACCENT_HOVER = "#a8d8c4"
-ACCENT_DIM = "#6a9a84"
-BLUE = "#4f759b"
-BLUE_LIGHT = "#6a8db3"
-PURPLE = "#5d5179"
-PURPLE_LIGHT = "#7a6d9a"
-GREEN = "#a2faa3"
-GREEN_DIM = "#70c872"
-TEXT = "#f0f0f0"
-TEXT_DIM = "#8a7fa0"
-TEXT_MID = "#bdb3d0"
-SUCCESS = "#a2faa3"
-ERROR = "#ff8a80"
-LOG_BG = "#1a1430"
+
+def _hex_to_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _rgb_to_hex(r, g, b):
+    return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+
+
+def _blend(hex1, hex2, t=0.5):
+    r1, g1, b1 = _hex_to_rgb(hex1)
+    r2, g2, b2 = _hex_to_rgb(hex2)
+    return _rgb_to_hex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t)
+
+
+def _darken(hex_color, amount=0.3):
+    r, g, b = _hex_to_rgb(hex_color)
+    return _rgb_to_hex(r * (1 - amount), g * (1 - amount), b * (1 - amount))
+
+
+def _lighten(hex_color, amount=0.3):
+    r, g, b = _hex_to_rgb(hex_color)
+    return _rgb_to_hex(r + (255 - r) * amount, g + (255 - g) * amount, b + (255 - b) * amount)
+
+
+def _luminance(hex_color):
+    r, g, b = _hex_to_rgb(hex_color)
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _build_theme(c1, c2, c3, c4):
+    """Build a full theme from 4 palette colors.
+    Sorts by luminance: brightest -> accent/green, mid -> accent/blue,
+    darker -> cards/purple, darkest -> background base."""
+    colors = sorted([c1, c2, c3, c4], key=_luminance)
+    darkest, dark, mid, bright = colors
+
+    # If the darkest color is still too light, derive a dark bg from it
+    lum = _luminance(darkest)
+    if lum > 60:
+        bg = _darken(darkest, 0.85)
+    else:
+        bg = _darken(darkest, 0.35)
+
+    light_text = _luminance(bg) < 100
+
+    # Ensure accent and green are bright enough to be visible on the bg
+    accent = mid
+    while light_text and _luminance(accent) < 120:
+        accent = _lighten(accent, 0.2)
+    green = bright
+    while light_text and _luminance(green) < 140:
+        green = _lighten(green, 0.2)
+
+    return {
+        "BG": bg,
+        "BG_MID": _lighten(bg, 0.08),
+        "BG_LIGHT": _lighten(bg, 0.14),
+        "CARD": _lighten(bg, 0.12) if light_text else _darken(bg, 0.15),
+        "CARD_HOVER": _lighten(bg, 0.18),
+        "CARD_BORDER": _lighten(bg, 0.22),
+        "ACCENT": accent,
+        "ACCENT_HOVER": _lighten(accent, 0.2),
+        "ACCENT_DIM": _darken(accent, 0.25),
+        "BLUE": dark if not light_text else _lighten(dark, 0.15),
+        "BLUE_LIGHT": _lighten(dark, 0.25),
+        "PURPLE": _blend(darkest, dark, 0.5),
+        "PURPLE_LIGHT": _lighten(_blend(darkest, dark, 0.5), 0.25),
+        "GREEN": green,
+        "GREEN_DIM": _darken(green, 0.2),
+        "TEXT": "#f0f0f0" if light_text else "#1a1a1a",
+        "TEXT_DIM": _lighten(bg, 0.35) if light_text else _darken(bg, 0.4),
+        "TEXT_MID": _lighten(bg, 0.50) if light_text else _darken(bg, 0.55),
+        "SUCCESS": green,
+        "ERROR": "#ff8a80" if light_text else "#c62828",
+        "LOG_BG": _darken(bg, 0.15),
+    }
+
+
+PALETTES = [
+    ("a2faa3", "92c9b1", "4f759b", "5d5179"),
+    ("8ab0ab", "3e505b", "26413c", "1a1d1a"),
+    ("d8dbe2", "a9bcd0", "58a4b0", "373f51"),
+    ("d7d9b1", "84acce", "827191", "7d1d3f"),
+    ("14080e", "49475b", "799496", "acc196"),
+    ("ffffff", "ffe8d1", "568ea3", "68c3d4"),
+]
+
+_chosen = random.choice(PALETTES)
+_theme = _build_theme(*[f"#{c}" for c in _chosen])
+
+BG = _theme["BG"]
+BG_MID = _theme["BG_MID"]
+BG_LIGHT = _theme["BG_LIGHT"]
+CARD = _theme["CARD"]
+CARD_HOVER = _theme["CARD_HOVER"]
+CARD_BORDER = _theme["CARD_BORDER"]
+ACCENT = _theme["ACCENT"]
+ACCENT_HOVER = _theme["ACCENT_HOVER"]
+ACCENT_DIM = _theme["ACCENT_DIM"]
+BLUE = _theme["BLUE"]
+BLUE_LIGHT = _theme["BLUE_LIGHT"]
+PURPLE = _theme["PURPLE"]
+PURPLE_LIGHT = _theme["PURPLE_LIGHT"]
+GREEN = _theme["GREEN"]
+GREEN_DIM = _theme["GREEN_DIM"]
+TEXT = _theme["TEXT"]
+TEXT_DIM = _theme["TEXT_DIM"]
+TEXT_MID = _theme["TEXT_MID"]
+SUCCESS = _theme["SUCCESS"]
+ERROR = _theme["ERROR"]
+LOG_BG = _theme["LOG_BG"]
 
 
 def find_comic_files(paths):
