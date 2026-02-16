@@ -50,11 +50,8 @@ jobs:
     - name: Download unrar binaries (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        mkdir binaries\windows
-        curl -sL -o winrar-x64-720.exe https://www.rarlab.com/rar/winrar-x64-720.exe
-        # For Windows, we'll use UnRAR source or a pre-built binary
-        # For now, skip Windows unrar and rely on users having it installed
-        echo "Windows unrar not bundled - users need to install separately"
+        echo "Windows unrar not bundled in CI - users need to install separately"
+        echo "For CBR support on Windows, install unrar and add to PATH"
       shell: cmd
     
     - name: Build with PyInstaller
